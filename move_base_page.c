@@ -34,9 +34,6 @@ int *nodes;
 int errors;
 int nr_nodes;
 
-struct bitmask *old_nodes;
-struct bitmask *new_nodes;
-
 #define PAGE_4K (4UL*1024)
 #define PAGE_2M (PAGE_4K*512)
 /*#define PAGE_1G (PAGE_2M*512)*/
@@ -49,6 +46,8 @@ struct bitmask *new_nodes;
 
 #define KPF_THP      (1UL<<22)
 
+#define SRC_NODE 0
+#define DST_NODE 1
 
 double get_us()
 {
@@ -102,16 +101,11 @@ int main(int argc, char **argv)
 	char stats_buffer[1024] = {0};
 	int pagemap_fd;
 	int kpageflags_fd;
-	unsigned long nodemask = 1<<0;
+	unsigned long nodemask = 1<<SRC_NODE;
 
 	pagesize = PAGE_4K;
 
 	nr_nodes = numa_max_node()+1;
-
-	old_nodes = numa_bitmask_alloc(nr_nodes);
-	new_nodes = numa_bitmask_alloc(nr_nodes);
-	numa_bitmask_setbit(old_nodes, 1);
-	numa_bitmask_setbit(new_nodes, 0);
 
 	if (nr_nodes < 2) {
 		printf("A minimum of 2 nodes is required for this test.\n");
@@ -141,7 +135,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < page_count; i++) {
 		pages[ i * pagesize] = (char) i;
 		addr[i] = pages + i * pagesize;
-		nodes[i] = 1;
+		nodes[i] = DST_NODE;
 		status[i] = -123;
 	}
 
@@ -191,7 +185,7 @@ int main(int argc, char **argv)
 		if (pages[ i* pagesize ] != (char) i) {
 			fprintf(stderr, "*** Page contents corrupted.\n");
 			errors++;
-		} else if (status[i] != 1) {
+		} else if (status[i] != DST_NODE) {
 			fprintf(stderr, "*** Page on the wrong node\n");
 			errors++;
 		}
