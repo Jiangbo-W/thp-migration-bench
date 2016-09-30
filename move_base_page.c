@@ -36,8 +36,17 @@ int nr_nodes;
 
 #define PAGE_4K (4UL*1024)
 #define PAGE_2M (PAGE_4K*512)
-/*#define PAGE_1G (PAGE_2M*512)*/
-#define PAGE_1G (128*1024*1024)
+
+#define PAGE_64K (64UL*1024)
+#define PAGE_16M (PAGE_64K*256)
+
+#ifdef ARCH_PPC64
+#define BASE_PAGE_SIZE PAGE_64K
+#define THP_PAGE_SIZE  PAGE_16M
+#else
+#define BASE_PAGE_SIZE PAGE_4K
+#define THP_PAGE_SIZE  PAGE_2M
+#endif
 
 #define PRESENT_MASK (1UL<<63)
 #define SWAPPED_MASK (1UL<<62)
@@ -103,7 +112,7 @@ int main(int argc, char **argv)
 	int kpageflags_fd;
 	unsigned long nodemask = 1<<SRC_NODE;
 
-	pagesize = PAGE_4K;
+	pagesize = BASE_PAGE_SIZE;
 
 	nr_nodes = numa_max_node()+1;
 
