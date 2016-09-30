@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <numaif.h>
+#include <sys/time.h>
 
 
 unsigned int pagesize;
@@ -47,6 +48,16 @@ struct bitmask *new_nodes;
 #define PFN_MASK     ((1UL<<55)-1)
 
 #define KPF_THP      (1UL<<22)
+
+double get_us()
+{
+        struct timeval tp;
+        struct timezone tzp;
+        int i;
+
+        i = gettimeofday(&tp,&tzp);
+        return ( (double) tp.tv_sec  + (double) tp.tv_usec *1.e-6);
+}
 
 void print_paddr_and_flags(char *bigmem, int pagemap_file, int kpageflags_file)
 {
@@ -82,7 +93,7 @@ void print_paddr_and_flags(char *bigmem, int pagemap_file, int kpageflags_file)
 int main(int argc, char **argv)
 {
 	int i, rc;
-	unsigned long begin = 0, end = 0;
+	double begin = 0, end = 0;
 	unsigned cycles_high, cycles_low;
 	unsigned cycles_high1, cycles_low1;
 	const char *pagemap_template = "/proc/%d/pagemap";
@@ -156,17 +167,7 @@ int main(int argc, char **argv)
 		print_paddr_and_flags(pages+PAGE_2M*i, pagemap_fd, kpageflags_fd);
 	}
 
-	asm volatile
-		( "CPUID\n\t"
-			"RDTSC\n\t"
-			"mov %%edx, %0\n\t"
-			"mov %%eax, %1\n\t"
-			:
-			"=r" (cycles_high), "=r" (cycles_low)
-			::
-			"rax", "rbx", "rcx", "rdx"
-		);
-	begin = ((uint64_t)cycles_high <<32 | cycles_low);
+	begin = get_us();
 
 	/* Move to starting node */
 	rc = numa_move_pages(0, page_count, addr, nodes, status, 0);
@@ -175,28 +176,15 @@ int main(int argc, char **argv)
 		perror("move_pages");
 		exit(1);
 	}
-	asm volatile
-		( "RDTSCP\n\t"
-			"mov %%edx, %0\n\t"
-			"mov %%eax, %1\n\t"
-			"CPUID\n\t"
-			:
-			"=r" (cycles_high1), "=r" (cycles_low1)
-			::
-			"rax", "rbx", "rcx", "rdx"
-		);
 
-	end = ((uint64_t)cycles_high1 <<32 | cycles_low1);
+	end = get_us();
 
 	printf("+++++After moved to node 1+++++\n");
 	for (i = 0; i < page_count; ++i) {
 		print_paddr_and_flags(pages+PAGE_2M*i, pagemap_fd, kpageflags_fd);
 	}
 
-	printf("Total_cycles\tBegin_timestamp\tEnd_timestamp\n"
-		"%llu\t%llu\t%llu\n",
-		(end-begin), begin, end);
-	printf("%s", stats_buffer);
+	printf("Total time: %f us\n", (end-begin)*1000000);
 
 	/* Get page state after migration */
 	numa_move_pages(0, page_count, addr, NULL, status, 0);
