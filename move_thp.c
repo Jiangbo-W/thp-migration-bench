@@ -25,15 +25,6 @@
 unsigned int pagesize;
 unsigned int page_count = 32;
 
-char *page_base;
-char *pages;
-
-void **addr;
-int *status;
-int *nodes;
-int errors;
-int nr_nodes;
-
 #define PAGE_4K (4UL*1024)
 #define PAGE_2M (PAGE_4K*512)
 
@@ -58,6 +49,17 @@ int nr_nodes;
 #define SRC_NODE 0
 #define DST_NODE 1
 
+void exchange_page(char *from, char *to)
+{
+	uint64_t tmp;
+	int i;
+	for (i = 0; i < pagesize; i += sizeof(tmp)) {
+		tmp = *((uint64_t *)(from + i));
+		*((uint64_t *)(from + i)) = *((uint64_t *)(to + i));
+		*((uint64_t *)(to + i)) = tmp;
+	}
+}
+
 double get_us()
 {
         struct timeval tp;
@@ -68,51 +70,37 @@ double get_us()
         return ( (double) tp.tv_sec  + (double) tp.tv_usec *1.e-6);
 }
 
-void print_paddr_and_flags(char *bigmem, int pagemap_file, int kpageflags_file)
+char *get_pages_at(unsigned long nodemask, int filled_val)
 {
-	uint64_t paddr;
-	uint64_t page_flags;
+	char *pages;
+	int i;
 
-	if (pagemap_file) {
-		pread(pagemap_file, &paddr, sizeof(paddr), ((long)bigmem>>12)*sizeof(paddr));
-
-
-		if (kpageflags_file) {
-			pread(kpageflags_file, &page_flags, sizeof(page_flags), 
-				(paddr & PFN_MASK)*sizeof(page_flags));
-
-			fprintf(stderr, "vpn: 0x%lx, pfn: 0x%lx is %s %s, %s, %s\n",
-				((long)bigmem)>>12,
-				(paddr & PFN_MASK),
-				paddr & PAGE_TYPE_MASK ? "file-page" : "anon",
-				paddr & PRESENT_MASK ? "there": "not there",
-				paddr & SWAPPED_MASK ? "swapped": "not swapped",
-				page_flags & KPF_THP ? "thp" : "not thp"
-				/*page_flags*/
-				);
-
-		}
+	pages = aligned_alloc(PAGE_2M, pagesize * page_count);
+	if (!pages) {
+		printf("Unable to allocate memory\n");
+		exit(1);
 	}
 
+	/* Use THPs to reduce TLB overhead */
+	madvise(pages, pagesize * page_count, MADV_HUGEPAGE);
+	mbind(pages, pagesize * page_count, MPOL_BIND, &nodemask, sizeof(nodemask)*8, 0);
 
+	for (i = 0; i < page_count; i++)
+		pages[i * pagesize] = (char)(i + filled_val);
 
+	return pages;
 }
-
 
 int main(int argc, char **argv)
 {
 	int i, rc;
 	double begin = 0, end = 0;
-	unsigned cycles_high, cycles_low;
-	unsigned cycles_high1, cycles_low1;
-	const char *pagemap_template = "/proc/%d/pagemap";
-	const char *kpageflags_proc = "/proc/kpageflags";
-	char move_pages_stats_proc[255];
-	char pagemap_proc[255];
-	char stats_buffer[1024] = {0};
-	int pagemap_fd;
-	int kpageflags_fd;
-	unsigned long nodemask = 1<<SRC_NODE;
+	unsigned long nodemask_src = 1<<SRC_NODE;
+	unsigned long nodemask_dst = 1<<DST_NODE;
+	char *pages_src;
+	char *pages_dst;
+	int errors;
+	int nr_nodes;
 
 	pagesize = THP_PAGE_SIZE;
 
@@ -124,80 +112,26 @@ int main(int argc, char **argv)
 	}
 
 	setbuf(stdout, NULL);
-	printf("migrate_pages() test ......\n");
 	if (argc > 1)
 		sscanf(argv[1], "%d", &page_count);
 
-	page_base = aligned_alloc(PAGE_2M, pagesize*page_count);
-	addr = malloc(sizeof(char *) * page_count);
-	status = malloc(sizeof(int *) * page_count);
-	nodes = malloc(sizeof(int *) * page_count);
-	if (!page_base || !addr || !status || !nodes) {
-		printf("Unable to allocate memory\n");
-		exit(1);
-	}
-
-	madvise(page_base, pagesize*page_count, MADV_HUGEPAGE);
-	mbind(page_base, pagesize*page_count, MPOL_BIND, &nodemask, 
-					sizeof(nodemask)*8, 0);
-
-	pages = page_base;
-
-	for (i = 0; i < page_count; i++) {
-		pages[ i * pagesize] = (char) i;
-		addr[i] = pages + i * pagesize;
-		nodes[i] = DST_NODE;
-		status[i] = -123;
-	}
-
-	sprintf(pagemap_proc, pagemap_template, getpid());
-	pagemap_fd = open(pagemap_proc, O_RDONLY);
-
-	if (pagemap_fd == -1)
-	{
-		perror("read pagemap:");
-		exit(-1);
-	}
-
-	kpageflags_fd = open(kpageflags_proc, O_RDONLY);
-
-	if (kpageflags_fd == -1)
-	{
-		perror("read kpageflags:");
-		exit(-1);
-	}
-
-	for (i = 0; i < page_count; ++i) {
-		print_paddr_and_flags(pages+PAGE_2M*i, pagemap_fd, kpageflags_fd);
-	}
+	pages_src = get_pages_at(nodemask_src, 0);
+	pages_dst = get_pages_at(nodemask_dst, 1);
 
 	begin = get_us();
 
-	/* Move to starting node */
-	rc = numa_move_pages(0, page_count, addr, nodes, status, 0);
-
-	if (rc < 0 && errno != ENOENT) {
-		perror("move_pages");
-		exit(1);
-	}
+	/* Exchange pages */
+	for (i = 0; i < page_count; i++)
+		exchange_page(pages_src + i * pagesize, pages_dst + i * pagesize);
 
 	end = get_us();
 
-	printf("+++++After moved to node 1+++++\n");
-	for (i = 0; i < page_count; ++i) {
-		print_paddr_and_flags(pages+PAGE_2M*i, pagemap_fd, kpageflags_fd);
-	}
-
 	printf("Total time: %f us\n", (end-begin)*1000000);
 
-	/* Get page state after migration */
-	numa_move_pages(0, page_count, addr, NULL, status, 0);
 	for (i = 0; i < page_count; i++) {
-		if (pages[ i* pagesize ] != (char) i) {
+		if (pages_src[ i* pagesize ] != (char)(i + 1) &&
+			pages_dst[ i* pagesize ] != (char)i) {
 			fprintf(stderr, "*** Page %d contents corrupted.\n", i);
-			errors++;
-		} else if (status[i] != DST_NODE) {
-			fprintf(stderr, "*** Page %d on the wrong node\n", i);
 			errors++;
 		}
 	}
@@ -206,9 +140,6 @@ int main(int argc, char **argv)
 		printf("Test successful.\n");
 	else
 		fprintf(stderr, "%d errors.\n", errors);
-
-	close(pagemap_fd);
-	close(kpageflags_fd);
 
 	return errors > 0 ? 1 : 0;
 }
