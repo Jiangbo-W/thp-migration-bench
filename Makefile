@@ -1,7 +1,7 @@
 
 CC=gcc
 
-thp_move_pages: move_thp.c 
+thp_move_pages: move_thp.c copy_page_64.S
 	$(CC) -o $@ $^ -lnuma
 
 bench: thp_move_pages non_thp_move_pages

@@ -49,6 +49,11 @@ unsigned int page_count = 32;
 #define SRC_NODE 0
 #define DST_NODE 1
 
+char page_tmp[PAGE_4K];
+int use_exchange_page2;
+
+extern void copy_page(char *vto, char *vfrom);
+
 void exchange_page(char *from, char *to)
 {
 	uint64_t tmp;
@@ -57,6 +62,16 @@ void exchange_page(char *from, char *to)
 		tmp = *((uint64_t *)(from + i));
 		*((uint64_t *)(from + i)) = *((uint64_t *)(to + i));
 		*((uint64_t *)(to + i)) = tmp;
+	}
+}
+
+void exchange_page2(char *from, char *to)
+{
+	int i;
+	for (i = 0; i < pagesize/PAGE_4K; i++) {
+		copy_page(page_tmp, from + i * PAGE_4K);
+		copy_page(from + i * PAGE_4K, to + i * PAGE_4K);
+		copy_page(to + i * PAGE_4K, page_tmp);
 	}
 }
 
@@ -114,6 +129,8 @@ int main(int argc, char **argv)
 	setbuf(stdout, NULL);
 	if (argc > 1)
 		sscanf(argv[1], "%d", &page_count);
+	if (argc > 2)
+		use_exchange_page2 = 1;
 
 	pages_src = get_pages_at(nodemask_src, 0);
 	pages_dst = get_pages_at(nodemask_dst, 1);
@@ -122,7 +139,10 @@ int main(int argc, char **argv)
 
 	/* Exchange pages */
 	for (i = 0; i < page_count; i++)
-		exchange_page(pages_src + i * pagesize, pages_dst + i * pagesize);
+		if (!use_exchange_page2)
+			exchange_page(pages_src + i * pagesize, pages_dst + i * pagesize);
+		else
+			exchange_page2(pages_src + i * pagesize, pages_dst + i * pagesize);
 
 	end = get_us();
 
