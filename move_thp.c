@@ -114,7 +114,7 @@ int main(int argc, char **argv)
 	unsigned long nodemask_dst = 1<<DST_NODE;
 	char *pages_src;
 	char *pages_dst;
-	int errors;
+	int errors = 0;
 	int nr_nodes;
 
 	pagesize = THP_PAGE_SIZE;
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 	setbuf(stdout, NULL);
 	if (argc > 1)
 		sscanf(argv[1], "%d", &page_count);
-	if (argc > 2)
+	if (argc > 2 && argv[2][0] == '2')
 		use_exchange_page2 = 1;
 
 	pages_src = get_pages_at(nodemask_src, 0);
