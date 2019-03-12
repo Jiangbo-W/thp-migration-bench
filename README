@@ -1,15 +1,3 @@
 =Requirements=
 1. NUMA machine: if no NUMA machine, fake NUMA also works.
 2. libnuma is needed.
-
-=How to=
-* make bench should give out the migration result between 512 4KB pages and 1 2MB page.
-Like: 
-
-THP Migration
-Total time: 676.870346 us
-Test successful.
--------------------
-Base Page Migration
-Total time: 2340.078354 us
-Test successful.
