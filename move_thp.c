@@ -77,12 +77,12 @@ void exchange_page2(char *from, char *to)
 
 double get_us()
 {
-        struct timeval tp;
-        struct timezone tzp;
-        int i;
+	struct timeval tp;
+	struct timezone tzp;
+	int i;
 
-        i = gettimeofday(&tp,&tzp);
-        return ( (double) tp.tv_sec  + (double) tp.tv_usec *1.e-6);
+	i = gettimeofday(&tp,&tzp);
+	return ( (double) tp.tv_sec  + (double) tp.tv_usec *1.e-6);
 }
 
 char *get_pages_at(unsigned long nodemask, int filled_val)
