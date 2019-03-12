@@ -13,6 +13,11 @@ for METHOD in ${EXCHANGE_METHOD}; do
     if [ ! -d ${RES_FOLDER} ]; then
         mkdir ${RES_FOLDER}
     fi
+    if [[ ${METHOD} == u64 ]]; then
+        sudo sysctl vm.use_u64_exchange=1
+    else
+        sudo sysctl vm.use_u64_exchange=0
+    fi
 
     for I in `seq 1 5`; do
         for MT in ${MULTI}; do
