@@ -1,21 +1,20 @@
 
 CC=gcc
 
-thp_move_pages: move_thp.c 
-	$(CC) -o $@ $^ -lnuma
+all: move_4kb_pages move_2mb_pages move_4kb_pages_par move_2mb_pages_par
+
+move_2mb_pages: move_page_breakdown.c 
+	$(CC) -DUSE_2MB -o $@ $^ -lnuma
 	sudo setcap "all=ep" $@
 
-non_thp_move_pages: move_base_page.c 
-	$(CC) -o $@ $^ -lnuma
+move_4kb_pages: move_page_breakdown.c 
+	$(CC) -DUSE_4KB -o $@ $^ -lnuma
 	sudo setcap "all=ep" $@
 
-%: %.c 
-	$(CC) -o $@ $^ -lnuma -lpthread
+move_2mb_pages_par: move_page_breakdown.c 
+	$(CC) -DUSE_2MB -o $@ $^ -lnuma
 	sudo setcap "all=ep" $@
 
-bench: thp_move_pages non_thp_move_pages
-	@echo "THP Migration"
-	@./thp_move_pages 1 2>/dev/null | grep -A 1 "Total\|Test"
-	@echo "-------------------"
-	@echo "Base Page Migration"
-	@./non_thp_move_pages 512 2>/dev/null | grep -A 1 "Total\|Test"
+move_4kb_pages_par: move_page_breakdown.c 
+	$(CC) -DUSE_4KB -o $@ $^ -lnuma
+	sudo setcap "all=ep" $@
