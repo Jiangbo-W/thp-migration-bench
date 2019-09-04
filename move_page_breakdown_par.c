@@ -44,6 +44,25 @@ int nr_nodes;
 
 #define KPF_THP      (1UL<<22)
 
+struct thread_info {
+	char *buffer;
+	unsigned int buf_size;
+	volatile int stop;
+};
+
+void *writer_func(void *arg)
+{
+	struct thread_info *info = (struct thread_info *)arg;
+	int i, j = 1;
+
+	while (!info->stop) {
+		for (i = 0; i < info->buf_size; i += pagesize) {
+			info->buffer[i] = (char)(i/pagesize+j);
+		}
+		j++;
+	}
+}
+
 void print_paddr_and_flags(char *bigmem, int pagemap_file, int kpageflags_file)
 {
 	uint64_t paddr;
@@ -54,7 +73,7 @@ void print_paddr_and_flags(char *bigmem, int pagemap_file, int kpageflags_file)
 
 
 		if (kpageflags_file) {
-			pread(kpageflags_file, &page_flags, sizeof(page_flags), 
+			pread(kpageflags_file, &page_flags, sizeof(page_flags),
 				(paddr & PFN_MASK)*sizeof(page_flags));
 
 			fprintf(stderr, "vpn: 0x%lx, pfn: 0x%lx is %s %s, %s, %s\n",
@@ -95,6 +114,8 @@ int main(int argc, char **argv)
 	const int dst_node = 1;
 	struct bitmask *src_node_mask;
 	struct bitmask *dst_node_mask;
+	pthread_t writer_thread;
+	struct thread_info writer_info;
 
 
 	pagesize = getpagesize();
@@ -177,6 +198,13 @@ int main(int argc, char **argv)
 	for (i = 0; i < page_count; ++i) {
 		print_paddr_and_flags(pages+PAGE_2M*i, pagemap_fd, kpageflags_fd);
 	}
+	/* create a parallel writer thread */
+	writer_info.buffer = page_base;
+	writer_info.buf_size = pagesize*page_count;
+	writer_info.stop = 0;
+
+	rc = pthread_create(&writer_thread, NULL, writer_func, (void*)&writer_info);
+
 	sprintf(move_pages_stats_proc, move_pages_stats, getpid());
 	stats_fd = open(move_pages_stats_proc, O_RDONLY);
 
@@ -245,7 +273,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < page_count; i++) {
 		/*printf("Page %d vaddr=%p node=%d\n", i, pages + i * pagesize, status[i]);*/
 		if (pages[ i* pagesize ] != (char) i) {
-			fprintf(stderr, "*** Page %d contents corrupted.\n", i);
+			fprintf(stderr, "*** Page %d contents corrupted(%d).\n", i, pages[ i* pagesize ]);
 			errors++;
 		} else if (status[i] != 1) {
 			fprintf(stderr, "*** Page %d on the wrong node\n", i);
@@ -261,6 +289,9 @@ int main(int argc, char **argv)
 	/*close(stats_fd);*/
 	close(pagemap_fd);
 	close(kpageflags_fd);
+
+	writer_info.stop = 1;
+	pthread_join(writer_thread, NULL);
 
 	return errors > 0 ? 1 : 0;
 }
