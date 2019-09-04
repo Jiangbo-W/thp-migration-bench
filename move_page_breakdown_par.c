@@ -197,7 +197,7 @@ int main(int argc, char **argv)
 	}
 
 	for (i = 0; i < page_count; ++i) {
-		print_paddr_and_flags(pages+PAGE_2M*i, pagemap_fd, kpageflags_fd);
+		print_paddr_and_flags(pages+pagesize*i, pagemap_fd, kpageflags_fd);
 	}
 	/* create a parallel writer thread */
 	writer_info.buffer = page_base;
@@ -254,7 +254,7 @@ int main(int argc, char **argv)
 
 	printf("+++++After moved to node 1+++++\n");
 	for (i = 0; i < page_count; ++i) {
-		print_paddr_and_flags(pages+PAGE_2M*i, pagemap_fd, kpageflags_fd);
+		print_paddr_and_flags(pages+pagesize*i, pagemap_fd, kpageflags_fd);
 	}
 	if (stats_fd != -1)
 		pread(stats_fd, stats_buffer, sizeof(stats_buffer), 0);
