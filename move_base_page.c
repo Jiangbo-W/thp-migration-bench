@@ -22,8 +22,8 @@
 #include <sys/time.h>
 
 
-unsigned int pagesize;
-unsigned int page_count = 32;
+unsigned long pagesize;
+unsigned long page_count = 32;
 
 char *page_base;
 char *pages;
@@ -31,7 +31,7 @@ char *pages;
 void **addr;
 int *status;
 int *nodes;
-int errors;
+unsigned long errors;
 int nr_nodes;
 
 #define PAGE_4K (4UL*1024)
@@ -101,7 +101,7 @@ void print_paddr_and_flags(char *bigmem, int pagemap_file, int kpageflags_file)
 
 int main(int argc, char **argv)
 {
-	int i, rc;
+	unsigned long i, rc;
 	double begin = 0, end = 0;
 	const char *pagemap_template = "/proc/%d/pagemap";
 	const char *kpageflags_proc = "/proc/kpageflags";
@@ -110,11 +110,14 @@ int main(int argc, char **argv)
 	char stats_buffer[1024] = {0};
 	int pagemap_fd;
 	int kpageflags_fd;
-	unsigned long nodemask = 1<<SRC_NODE;
+	//unsigned long nodemask = 1<<SRC_NODE;
+	unsigned long src_nodemask;
+	unsigned long src_node, dst_node;
 
 	pagesize = BASE_PAGE_SIZE;
 
 	nr_nodes = numa_max_node()+1;
+	printf("nr_nodes: %d\n", nr_nodes);
 
 	if (nr_nodes < 2) {
 		printf("A minimum of 2 nodes is required for this test.\n");
@@ -122,9 +125,29 @@ int main(int argc, char **argv)
 	}
 
 	setbuf(stdout, NULL);
+	if (argc != 4) {
+		printf("%s [src_node] [dst_node] [count]\n", argv[0]);
+		exit(1);
+	}
+	sscanf(argv[1], "%lu", &src_node);
+	if (src_nodemask < 0 || src_node > nr_nodes) {
+		printf("Invalid src node: %d\n", src_node);
+		exit(1);
+	}
+	sscanf(argv[2], "%lu", &dst_node);
+	if (dst_node < 0 || dst_node >= nr_nodes) {
+		printf("Invalid dst node: %d\n", dst_node);
+		exit(1);
+	}
+	sscanf(argv[3], "%d", &page_count);
+	if (page_count <= 0) {
+		printf("Invalid count: %d\n", page_count);
+		exit(1);
+	}
+	src_nodemask = 1 << src_node;
+	printf("%lu %lu page count: %lu\n", src_node, dst_node, page_count);
+
 	printf("migrate_pages() test ......\n");
-	if (argc > 1)
-		sscanf(argv[1], "%d", &page_count);
 
 	page_base = aligned_alloc(pagesize, pagesize*page_count);
 	addr = malloc(sizeof(char *) * page_count);
@@ -136,15 +159,15 @@ int main(int argc, char **argv)
 	}
 
 	madvise(page_base, pagesize*page_count, MADV_NOHUGEPAGE);
-	mbind(page_base, pagesize*page_count, MPOL_BIND, &nodemask, 
-					sizeof(nodemask)*8, 0);
+	mbind(page_base, pagesize*page_count, MPOL_BIND, &src_nodemask,
+					sizeof(src_nodemask)*8, 0);
 
 	pages = page_base;
 
 	for (i = 0; i < page_count; i++) {
 		pages[ i * pagesize] = (char) i;
 		addr[i] = pages + i * pagesize;
-		nodes[i] = DST_NODE;
+		nodes[i] = dst_node;
 		status[i] = -123;
 	}
 
@@ -165,9 +188,11 @@ int main(int argc, char **argv)
 		exit(-1);
 	}
 
+	/*
 	for (i = 0; i < page_count; ++i) {
 		print_paddr_and_flags(pages+pagesize*i, pagemap_fd, kpageflags_fd);
 	}
+	*/
 
 	begin = get_us();
 
@@ -181,10 +206,12 @@ int main(int argc, char **argv)
 
 	end = get_us();
 
-	printf("+++++After moved to node 1+++++\n");
+	printf("+++++After moved to node %d+++++\n", dst_node);
+	/*
 	for (i = 0; i < page_count; ++i) {
 		print_paddr_and_flags(pages+pagesize*i, pagemap_fd, kpageflags_fd);
 	}
+	*/
 
 	printf("Total time: %f us\n", (end-begin)*1000000);
 
@@ -194,7 +221,7 @@ int main(int argc, char **argv)
 		if (pages[ i* pagesize ] != (char) i) {
 			fprintf(stderr, "*** Page contents corrupted.\n");
 			errors++;
-		} else if (status[i] != DST_NODE) {
+		} else if (status[i] != dst_node) {
 			fprintf(stderr, "*** Page on the wrong node\n");
 			errors++;
 		}
